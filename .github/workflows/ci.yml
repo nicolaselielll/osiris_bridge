@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests (ROS 2 Humble)
+    runs-on: ubuntu-latest
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the agent and its test dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends python3-pip ros-humble-nav2-msgs
+          pip3 install . pytest
+
+      - name: Run the tests
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          python3 -m pytest -q

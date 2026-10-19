@@ -1,0 +1,57 @@
+"""Static transforms and the root frame are never stale in the TF tree the agent reports."""
+
+import time
+from types import SimpleNamespace
+
+import pytest
+
+# PyYAML comes with ROS; without it this skips.
+yaml = pytest.importorskip('yaml')
+
+from osiris_agent.tf_tree_collector import TfTreeCollector  # noqa: E402
+
+
+def transform(parent, child, stamp_sec):
+    sec = int(stamp_sec)
+    return SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=sec, nanosec=int((stamp_sec - sec) * 1e9)), frame_id=parent),
+        transform=SimpleNamespace(translation=SimpleNamespace(x=0.0, y=0.0, z=0.0),
+                                  rotation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0)),
+    )
+
+
+class FakeBuffer:
+    """map -> odom -> base_footprint (dynamic) -> base_link -> base_scan (static)."""
+
+    def __init__(self, now, odom_age=0.1):
+        self.parents = {'odom': 'map', 'base_footprint': 'odom', 'base_link': 'base_footprint', 'base_scan': 'base_link'}
+        self.stamps = {'odom': now - odom_age, 'base_footprint': now - 0.05, 'base_link': 0.0, 'base_scan': 0.0}
+
+    def _getFrameStrings(self):
+        return ['map', *self.parents]
+
+    def all_frames_as_yaml(self):
+        return yaml.safe_dump({child: {'parent': parent} for child, parent in self.parents.items()})
+
+    def lookup_transform(self, parent, child, _time):
+        return transform(parent, child, self.stamps[child])
+
+
+def tree(buffer):
+    collector = TfTreeCollector(node=None, event_callback=lambda _e: None, logger=SimpleNamespace(debug=lambda *_: None))
+    collector._tf_buffer = buffer
+    return collector._build_frame_tree()
+
+
+def test_static_and_root_frames_are_not_stale():
+    frames = tree(FakeBuffer(time.time()))
+    assert frames['base_link']['is_static'] and not frames['base_link']['is_stale']
+    assert frames['base_link']['age_seconds'] is None
+    assert frames['base_scan']['is_static'] and not frames['base_scan']['is_stale']
+    assert frames['map']['parent'] is None and not frames['map']['is_stale']
+    assert not frames['odom']['is_static'] and not frames['odom']['is_stale']
+
+
+def test_a_dynamic_transform_that_stopped_is_still_stale():
+    frames = tree(FakeBuffer(time.time(), odom_age=30.0))
+    assert frames['odom']['is_stale'] and not frames['odom']['is_static']
