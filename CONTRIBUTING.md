@@ -4,7 +4,7 @@ Thanks for helping improve the Osiris bridge. Bug reports and pull requests are 
 
 ## Reporting a bug
 
-Open an issue at https://github.com/nicolaselielll/osiris-bridge/issues with:
+Open an issue at https://github.com/nicolaselielll/osiris_bridge/issues with:
 
 - what happened and what you expected,
 - how to reproduce it,

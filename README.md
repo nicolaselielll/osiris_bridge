@@ -3,7 +3,7 @@
 ![PyPI](https://img.shields.io/pypi/v/osiris-bridge.svg)
 ![Python](https://img.shields.io/pypi/pyversions/osiris-bridge.svg)
 ![License](https://img.shields.io/pypi/l/osiris-bridge.svg)
-![CI](https://github.com/nicolaselielll/osiris-bridge/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/nicolaselielll/osiris_bridge/actions/workflows/ci.yml/badge.svg)
 
 The Osiris bridge connects a ROS 2 robot to [Osiris](https://osirislabs.io), where you watch it live, record bags, look back through its history and ask an AI what it is doing.
 
@@ -214,12 +214,12 @@ osiris --ros-args -r __ns:=/robot1
 
 ## Contributing
 
-Bug reports and pull requests are welcome at https://github.com/nicolaselielll/osiris-bridge. See [CONTRIBUTING.md](https://github.com/nicolaselielll/osiris-bridge/blob/main/CONTRIBUTING.md) to report a bug or send a change, and [SECURITY.md](https://github.com/nicolaselielll/osiris-bridge/blob/main/SECURITY.md) to report a security problem privately.
+Bug reports and pull requests are welcome at https://github.com/nicolaselielll/osiris_bridge. See [CONTRIBUTING.md](https://github.com/nicolaselielll/osiris_bridge/blob/main/CONTRIBUTING.md) to report a bug or send a change, and [SECURITY.md](https://github.com/nicolaselielll/osiris_bridge/blob/main/SECURITY.md) to report a security problem privately.
 
 ## License
 
-Apache-2.0. See [LICENSE](https://github.com/nicolaselielll/osiris-bridge/blob/main/LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/nicolaselielll/osiris_bridge/blob/main/LICENSE).
 
 ## Changelog
 
-See [CHANGELOG.md](https://github.com/nicolaselielll/osiris-bridge/blob/main/CHANGELOG.md) for what changed in each version.
+See [CHANGELOG.md](https://github.com/nicolaselielll/osiris_bridge/blob/main/CHANGELOG.md) for what changed in each version.

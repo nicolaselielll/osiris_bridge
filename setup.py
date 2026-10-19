@@ -10,7 +10,7 @@ setup(
     description='Osiris bridge: connects a ROS 2 robot (Humble and later) to Osiris',
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url='https://github.com/nicolaselielll/osiris-bridge',
+    url='https://github.com/nicolaselielll/osiris_bridge',
     author='Nicolas Tuomaala',
     author_email='nicolas.tuomaala00@gmail.com',
     packages=find_packages(),
