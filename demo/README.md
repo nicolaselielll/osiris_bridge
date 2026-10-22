@@ -19,7 +19,7 @@ watch it live, ask the Agent about it and record bags. Robot commands are off.
 ## Turning it on and off
 
 ```
-./robot.sh on       # in the demo workspace about 2 minutes later
+./robot.sh on       # in the demo workspace within a minute
 ./robot.sh off      # stopped: only its disk is billed
 ./robot.sh status
 ```
