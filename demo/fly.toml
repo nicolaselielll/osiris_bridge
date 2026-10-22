@@ -1,0 +1,21 @@
+# Osiris Cloud's demo robot (README.md). It has no services: it only connects
+# out, to the gateway over Fly's private network. OSIRIS_AUTH_TOKEN, the demo
+# robot's bridge token, is a secret.
+app = 'osiris-demo-robot'
+primary_region = 'ord'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  OSIRIS_WS_URL = 'ws://osiris-gateway.internal:8080'
+
+# start.sh exits when the simulation, the bridge or the patrol stops, and the
+# machine starts over from a fresh disk.
+[[restart]]
+  policy = 'always'
+
+# Gazebo keeps the CPU busy, and shared CPUs are throttled under constant load.
+[[vm]]
+  size = 'performance-2x'
+  memory = '4gb'

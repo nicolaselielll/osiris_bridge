@@ -1,0 +1,22 @@
+# The demo robot's bridge settings. A params file fixes them for every run, so
+# Cloud Config is ignored; Osiris keeps robot commands off on its side as well,
+# since the demo workspace's owners never allow them.
+osiris_node:
+  ros__parameters:
+    telemetry_enabled: true
+    goals_enabled: true
+    params_enabled: true
+    graph_debounce_interval: 1.0
+    tf_tree_enabled: true
+    tf_tree_poll_interval: 0.2
+    ros2_control_enabled: false
+    bt_mode: "nav2"
+    battery_check_enabled: false
+    dock_check_enabled: false
+    commands_enabled: false
+    bag_output_dir: "/root/ros2_bags"
+    topic_data_rate_hz: 10.0
+    image_jpeg_quality: 60
+    image_max_dimension: 480
+    pointcloud_max_points: 5000
+    pointcloud_default_rate_hz: 1.0
