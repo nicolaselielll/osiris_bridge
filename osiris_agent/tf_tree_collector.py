@@ -20,6 +20,34 @@ DEFAULT_STALE_THRESHOLD = 1.0
 # How often (seconds) to actually query the buffer — 10 Hz = 0.1 s.
 POLL_INTERVAL = 0.1
 
+# 2001-01-01 in seconds since 1970: earlier than any real robot's clock.
+SIM_TIME_BEFORE = 978307200.0
+
+
+def on_sim_time(stamps, wall_now):
+    """Whether the robot's transforms are stamped in simulation time.
+
+    A robot running a simulation stamps its transforms with simulation time,
+    which counts from the simulation's start rather than from 1970: even the
+    newest is from before 2001, while the wall clock isn't.
+    """
+    newest = max(stamps, default=None)
+    return newest is not None and newest < SIM_TIME_BEFORE <= wall_now
+
+
+def reference_time(stamps, wall_now, sim_clock=None):
+    """The time transform ages are measured from.
+
+    The wall clock, unless the robot runs on simulation time: against the wall
+    clock its transforms would all look decades old and stale. Then it's the
+    simulation's own clock (/clock), or, before one has arrived, the newest
+    stamp. /clock first, since AMCL stamps map -> odom ahead of time (its
+    transform_tolerance), which would put every other frame that far behind.
+    """
+    if not on_sim_time(stamps, wall_now):
+        return wall_now
+    return sim_clock if sim_clock is not None else max(stamps)
+
 
 class TfTreeCollector:
     """Polls tf2 buffer for the full frame tree and emits tf_tree events on change."""
@@ -45,6 +73,30 @@ class TfTreeCollector:
 
         # Rate-limiting: skip poll if called too soon
         self._last_poll_time = 0.0
+
+        # The simulation's clock, from /clock (seconds; None until a message
+        # or on a robot without one). Used only when the transforms show the
+        # robot runs on simulation time.
+        self._sim_clock = None
+        self._clock_subscription = None
+
+    def _listen_to_sim_clock(self):
+        """Subscribes to /clock, once, for the simulation's current time."""
+        if self._clock_subscription is not None or self._node is None:
+            return
+        try:
+            from rclpy.qos import QoSProfile, ReliabilityPolicy
+            from rosgraph_msgs.msg import Clock
+            self._clock_subscription = self._node.create_subscription(
+                Clock, '/clock', self._on_clock,
+                QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
+            )
+        except Exception as e:
+            self._clock_subscription = False
+            self._logger.debug(f"TfTreeCollector: no /clock subscription: {e}")
+
+    def _on_clock(self, msg):
+        self._sim_clock = msg.clock.sec + msg.clock.nanosec * 1e-9
 
     # ------------------------------------------------------------------
     # Public API
@@ -173,6 +225,9 @@ class TfTreeCollector:
                 namespace = resolve_tf_namespace(self._node)
             self._tf_buffer = tf2_ros.Buffer()
             self._tf_listener = TfListener(self._tf_buffer, self._node, namespace)
+            # From the start, so the first tree a simulated robot sends is
+            # already measured from its clock. Used only on simulation time.
+            self._listen_to_sim_clock()
             return True
         except Exception as e:
             self._logger.warning(f"TfTreeCollector: could not create listener: {e}")
@@ -229,8 +284,7 @@ class TfTreeCollector:
         except Exception as e:
             self._logger.debug(f"TfTreeCollector: could not parse frames YAML: {e}")
 
-        now = time.time()
-        result = {}
+        looked_up = []
 
         for frame_id in frame_ids:
             parent = parent_map.get(frame_id)
@@ -258,7 +312,14 @@ class TfTreeCollector:
                         stamp = stamp_msg.sec + stamp_msg.nanosec * 1e-9
                 except Exception:
                     pass
+            looked_up.append((frame_id, parent, stamp, translation, rotation, is_static))
 
+        stamps = [stamp for _, _, stamp, _, _, _ in looked_up if stamp is not None]
+        wall_now = time.time()
+        now = reference_time(stamps, wall_now, self._sim_clock)
+        result = {}
+
+        for frame_id, parent, stamp, translation, rotation, is_static in looked_up:
             age_seconds = (now - stamp) if stamp is not None else None
             if is_static or not parent:
                 is_stale = False

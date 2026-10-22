@@ -36,7 +36,7 @@ from .command_policy import (
 )
 from .commands import CommandMixin
 from .connection import ConnectionMixin
-from .graph_monitor import GraphMonitorMixin
+from .graph_monitor import WATCHER_CHECK_S, GraphMonitorMixin
 from .graph_watcher_launcher import forward_stderr, start_graph_watcher
 from .lifecycle import LifecycleMixin
 from .nav2_bt_monitor import Nav2BtMonitorMixin
@@ -423,6 +423,7 @@ class WebBridge(
             self._on_parameter_event, qos_profile_parameter_events,
         )
         self._startup_check_timer = self.create_timer(1.0, self._do_startup_check)
+        self.create_timer(WATCHER_CHECK_S, self._check_graph_watcher)
         self.create_timer(TELEMETRY_INTERVAL,          self._collect_telemetry)
         self.create_timer(1.0,                         self._publish_topic_rates)
         # Not created here — its period is a constructor arg to create_timer,
@@ -557,6 +558,26 @@ class WebBridge(
     # Cleanup
     # ──────────────────────────────────────────────
 
+    def _forward_watcher_stderr(self, proc):
+        """Forwards a started graph_watcher's stderr to the ROS logger, so its
+        crashes are visible, falling back to plain stderr once rclpy is
+        shutting down to avoid publishing on an invalid context.
+        forward_stderr keeps reading whatever a line holds, so the pipe never
+        fills and blocks graph_watcher."""
+        if not proc or not proc.stderr:
+            return
+        ros_log = self.get_logger()
+
+        def _log_watcher_line(line):
+            if rclpy.ok():
+                try:
+                    ros_log.info(f'[gw] {line}')
+                    return
+                except Exception:
+                    pass
+            print(f'[gw] {line}', file=sys.stderr, flush=True)
+        threading.Thread(target=forward_stderr, args=(proc.stderr, _log_watcher_line), daemon=True).start()
+
     def destroy_node(self):
         # Cancel pending debounce timer so it doesn't fire after shutdown.
         if self._graph_debounce_timer is not None:
@@ -591,31 +612,23 @@ def main(args=None):
 
     rclpy.init(args=args)
     node = WebBridge(watcher_proc=_watcher_proc)
-
-    # Forward graph_watcher stderr to the ROS logger so crashes are visible,
-    # falling back to plain stderr once rclpy is shutting down to avoid
-    # publishing on an invalid context. forward_stderr keeps reading whatever
-    # a line holds, so the pipe never fills and blocks graph_watcher.
-    if _watcher_proc and _watcher_proc.stderr:
-        ros_log = node.get_logger()
-
-        def _log_watcher_line(line):
-            if rclpy.ok():
-                try:
-                    ros_log.info(f'[gw] {line}')
-                    return
-                except Exception:
-                    pass
-            print(f'[gw] {line}', file=sys.stderr, flush=True)
-        threading.Thread(target=forward_stderr, args=(_watcher_proc.stderr, _log_watcher_line), daemon=True).start()
+    node._forward_watcher_stderr(_watcher_proc)
 
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
+    except Exception:
+        # A Ctrl+C can land while the executor builds its wait set, which then
+        # fails with an RCLError because the context is shutting down. That's
+        # a normal stop; any error while ROS is still running is real.
+        if rclpy.ok():
+            raise
     finally:
         # Stop the C++ watcher first so its stderr pipe closes and the
-        # forwarder thread exits before we tear down the rclpy context.
+        # forwarder thread exits before we tear down the rclpy context. The
+        # node's own: a restarted watcher replaced the one started here.
+        _watcher_proc = node._watcher_proc
         if _watcher_proc is not None:
             try:
                 _watcher_proc.terminate()

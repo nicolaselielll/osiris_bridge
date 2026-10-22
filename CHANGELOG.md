@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1 (2026-10-22)
+
+### Fixes
+
+- **TF frames on a simulated robot are no longer all stale.** A robot running a simulation stamps its transforms with simulation time, which counts from the simulation's start. The bridge measured their age against the wall clock, so every moving frame showed as stale, with an age of about 56 years. When every transform is stamped before 2001, ages are now measured from the simulation's own clock (/clock), or from the newest transform until /clock arrives. Robots on the wall clock are unchanged.
+- **The graph watcher is started again if it exits.** Without it the bridge heard of no graph change, and the app kept showing the robot's last graph until the bridge restarted. The bridge now checks it every 5 seconds, starts it again, and reads the graph once to catch up on what changed meanwhile. One that keeps crashing is retried once a minute after three quick restarts.
+- **Ctrl+C no longer prints a stack trace now and then.** On a busy robot, ROS could shut down while the bridge was waiting for events, and the bridge reported that as an error.
+
+### Packaging
+
+- The source package now includes the graph watcher's C++ source, which the bundled graph_watcher binaries are built from.
+
 ## 0.5.0 (2026-10-19)
 
 ### When you upgrade

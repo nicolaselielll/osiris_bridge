@@ -1,0 +1,3 @@
+# The graph watcher's C++ source, so the source package holds what the bundled
+# graph_watcher binaries are built from.
+graft graph_watcher

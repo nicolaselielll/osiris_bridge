@@ -5,6 +5,8 @@ import time
 
 from std_msgs.msg import Empty as EmptyMsg
 
+from .graph_watcher_launcher import start_graph_watcher
+
 # Services to suppress from graph output (internal ROS2 plumbing)
 _SUPPRESSED_SERVICE_PREFIXES = ('/ros2cli_daemon',)
 
@@ -16,6 +18,14 @@ _SUPPRESSED_SERVICE_PREFIXES = ('/ros2cli_daemon',)
 # be longer than that.
 GRAPH_SETTLE_S = 4.0
 GRAPH_SETTLE_MAX_S = 15.0
+
+# A graph watcher that exits is started again: its process is checked every
+# WATCHER_CHECK_S. After WATCHER_QUICK_RESTARTS restarts within
+# WATCHER_RESTART_WINDOW_S, the next waits WATCHER_RESTART_WINDOW_S, so one
+# that keeps crashing doesn't flood the log.
+WATCHER_CHECK_S = 5.0
+WATCHER_QUICK_RESTARTS = 3
+WATCHER_RESTART_WINDOW_S = 60.0
 
 
 class GraphMonitorMixin:
@@ -551,6 +561,33 @@ class GraphMonitorMixin:
                 )
         if not self._first_graph_check_done:
             self._check_graph_changes()
+
+    def _check_graph_watcher(self):
+        """Starts the graph watcher again if it was running and has exited.
+
+        Without it the bridge hears of no graph change, and the app keeps the
+        robot's last graph until the bridge restarts. A robot with no watcher
+        binary to start (None from the start) is left as it is.
+        """
+        proc = self._watcher_proc
+        if proc is None or proc.poll() is None:
+            return
+        now = time.monotonic()
+        restarts = [t for t in getattr(self, '_watcher_restarts', []) if now - t < WATCHER_RESTART_WINDOW_S]
+        self._watcher_restarts = restarts
+        if len(restarts) >= WATCHER_QUICK_RESTARTS and now - restarts[-1] < WATCHER_RESTART_WINDOW_S:
+            return
+        self.get_logger().error(
+            f"[graph] graph_watcher exited (rc={proc.returncode}) — starting it again"
+        )
+        restarts.append(now)
+        new_proc = start_graph_watcher()
+        if new_proc is None:
+            return
+        self._watcher_proc = new_proc
+        self._forward_watcher_stderr(new_proc)
+        # Changes while it was down were never announced: look once now.
+        self._trigger_graph_poll()
 
     def _note_graph(self, nodes: set, topics: set):
         """Records when the set of nodes or topics last changed."""
