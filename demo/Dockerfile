@@ -20,6 +20,13 @@ RUN for f in /opt/ros/jazzy/share/nav2_bringup/launch/navigation_launch.py /opt/
       && grep -q bond_timeout "$f"; \
     done
 
+# Nav2's settings with the global costmap published every 5 s instead of every
+# second: the Map pane streams it, and each one takes about 150 KB to store.
+RUN mkdir -p /demo \
+ && sed '/^global_costmap:/,/^[a-z]/ s/publish_frequency: 1.0/publish_frequency: 0.2/' \
+      /opt/ros/jazzy/share/nav2_bringup/params/nav2_params.yaml > /demo/nav2_params.yaml \
+ && grep -A6 '^global_costmap:' /demo/nav2_params.yaml | grep -q 'publish_frequency: 0.2'
+
 ARG BRIDGE_VERSION=0.5.2
 RUN pip3 install --no-cache-dir --break-system-packages osiris-bridge==${BRIDGE_VERSION}
 

@@ -6,7 +6,9 @@ bridge connected to the demo workspace. People invited to the demo workspace
 watch it live, ask the Agent about it and record bags. Robot commands are off.
 
 - `Dockerfile`: ROS 2 Jazzy, Gazebo Harmonic, Nav2 and the bridge from PyPI
-  (`BRIDGE_VERSION`).
+  (`BRIDGE_VERSION`). Nav2 runs with its own settings except the global
+  costmap, published every 5 s instead of every second to keep the stored
+  data small.
 - `start.sh`: starts the simulation and gives AMCL the robot's pose, then runs
   the bridge, the patrol and the recording clean-up. If the simulation, the
   bridge or the patrol stops, the machine starts over.

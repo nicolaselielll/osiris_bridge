@@ -18,7 +18,7 @@ log() { echo "[demo] $*"; }
 ip link set lo multicast on
 Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp &
 
-ros2 launch nav2_bringup tb3_simulation_launch.py headless:=True use_rviz:=False &
+ros2 launch nav2_bringup tb3_simulation_launch.py headless:=True use_rviz:=False params_file:=/demo/nav2_params.yaml &
 SIM=$!
 nodes=0
 for _ in $(seq 120); do
