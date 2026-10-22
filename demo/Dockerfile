@@ -20,7 +20,7 @@ RUN for f in /opt/ros/jazzy/share/nav2_bringup/launch/navigation_launch.py /opt/
       && grep -q bond_timeout "$f"; \
     done
 
-ARG BRIDGE_VERSION=0.5.1
+ARG BRIDGE_VERSION=0.5.2
 RUN pip3 install --no-cache-dir --break-system-packages osiris-bridge==${BRIDGE_VERSION}
 
 COPY start.sh clean_bags.sh initial_pose.py patrol.py osiris_params.yaml /demo/
