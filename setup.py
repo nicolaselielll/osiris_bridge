@@ -6,7 +6,7 @@ long_description = (HERE / "README.md").read_text(encoding="utf-8")
 
 setup(
     name='osiris-bridge',
-    version='0.5.1',
+    version='0.5.2',
     description='Osiris bridge: connects a ROS 2 robot (Humble and later) to Osiris',
     long_description=long_description,
     long_description_content_type="text/markdown",

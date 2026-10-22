@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2 (2026-10-22)
+
+### Fixes
+
+- **The bridge uses far less CPU.** 0.5.1 subscribed to /clock to measure transform ages on simulated robots, and a simulator publishes /clock hundreds of times a second: every message woke the bridge, which then used about 70% of a CPU core on Gazebo's TurtleBot3 with Nav2. The bridge no longer subscribes to /clock. On simulation time, a transform's age is now how long ago the bridge saw its stamp change, measured on the wall clock.
+- The bridge's subscriptions and publishers no longer carry rclpy's default QoS event handlers, which the executor checked again on every message. That robot now costs the bridge about 11% of a core, half of what 0.5.0 used. Without those handlers, rclpy no longer logs incompatible QoS for the bridge's own subscriptions; the bridge matches each topic's QoS itself.
+
 ## 0.5.1 (2026-10-22)
 
 ### Fixes

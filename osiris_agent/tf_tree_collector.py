@@ -35,20 +35,6 @@ def on_sim_time(stamps, wall_now):
     return newest is not None and newest < SIM_TIME_BEFORE <= wall_now
 
 
-def reference_time(stamps, wall_now, sim_clock=None):
-    """The time transform ages are measured from.
-
-    The wall clock, unless the robot runs on simulation time: against the wall
-    clock its transforms would all look decades old and stale. Then it's the
-    simulation's own clock (/clock), or, before one has arrived, the newest
-    stamp. /clock first, since AMCL stamps map -> odom ahead of time (its
-    transform_tolerance), which would put every other frame that far behind.
-    """
-    if not on_sim_time(stamps, wall_now):
-        return wall_now
-    return sim_clock if sim_clock is not None else max(stamps)
-
-
 class TfTreeCollector:
     """Polls tf2 buffer for the full frame tree and emits tf_tree events on change."""
 
@@ -74,29 +60,25 @@ class TfTreeCollector:
         # Rate-limiting: skip poll if called too soon
         self._last_poll_time = 0.0
 
-        # The simulation's clock, from /clock (seconds; None until a message
-        # or on a robot without one). Used only when the transforms show the
-        # robot runs on simulation time.
-        self._sim_clock = None
-        self._clock_subscription = None
+        # On simulation time: frame -> (its latest stamp, the wall time this
+        # bridge first saw that stamp).
+        self._stamp_seen = {}
 
-    def _listen_to_sim_clock(self):
-        """Subscribes to /clock, once, for the simulation's current time."""
-        if self._clock_subscription is not None or self._node is None:
-            return
-        try:
-            from rclpy.qos import QoSProfile, ReliabilityPolicy
-            from rosgraph_msgs.msg import Clock
-            self._clock_subscription = self._node.create_subscription(
-                Clock, '/clock', self._on_clock,
-                QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
-            )
-        except Exception as e:
-            self._clock_subscription = False
-            self._logger.debug(f"TfTreeCollector: no /clock subscription: {e}")
+    def _sim_time_age(self, frame_id, stamp, wall_now):
+        """A transform's age on a robot that runs on simulation time.
 
-    def _on_clock(self, msg):
-        self._sim_clock = msg.clock.sec + msg.clock.nanosec * 1e-9
+        Its stamp counts from the simulation's start, so it can't be compared
+        with the wall clock. The age is how long ago this bridge first saw the
+        stamp, on the wall clock: a transform still being published keeps
+        getting new stamps, and one that stopped grows old. This needs no
+        /clock subscription, which a simulator publishes hundreds of times a
+        second, and AMCL stamping map -> odom ahead of time changes nothing.
+        """
+        seen = self._stamp_seen.get(frame_id)
+        if seen is None or seen[0] != stamp:
+            self._stamp_seen[frame_id] = (stamp, wall_now)
+            return 0.0
+        return wall_now - seen[1]
 
     # ------------------------------------------------------------------
     # Public API
@@ -225,9 +207,6 @@ class TfTreeCollector:
                 namespace = resolve_tf_namespace(self._node)
             self._tf_buffer = tf2_ros.Buffer()
             self._tf_listener = TfListener(self._tf_buffer, self._node, namespace)
-            # From the start, so the first tree a simulated robot sends is
-            # already measured from its clock. Used only on simulation time.
-            self._listen_to_sim_clock()
             return True
         except Exception as e:
             self._logger.warning(f"TfTreeCollector: could not create listener: {e}")
@@ -316,11 +295,16 @@ class TfTreeCollector:
 
         stamps = [stamp for _, _, stamp, _, _, _ in looked_up if stamp is not None]
         wall_now = time.time()
-        now = reference_time(stamps, wall_now, self._sim_clock)
+        sim_time = on_sim_time(stamps, wall_now)
         result = {}
 
         for frame_id, parent, stamp, translation, rotation, is_static in looked_up:
-            age_seconds = (now - stamp) if stamp is not None else None
+            if stamp is None:
+                age_seconds = None
+            elif sim_time:
+                age_seconds = self._sim_time_age(frame_id, stamp, wall_now)
+            else:
+                age_seconds = wall_now - stamp
             if is_static or not parent:
                 is_stale = False
             else:

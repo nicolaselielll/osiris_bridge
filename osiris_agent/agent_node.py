@@ -20,6 +20,10 @@ import rclpy
 
 from rcl_interfaces.msg import ParameterEvent
 from rclpy.node import Node
+try:
+    from rclpy.event_handler import PublisherEventCallbacks, SubscriptionEventCallbacks
+except ImportError:  # Humble
+    from rclpy.qos_event import PublisherEventCallbacks, SubscriptionEventCallbacks
 from rclpy.qos import qos_profile_parameter_events
 from std_msgs.msg import Empty as EmptyMsg
 
@@ -63,6 +67,20 @@ class WebBridge(
     Nav2BtMonitorMixin,
     Node,
 ):
+
+    # rclpy gives every subscription and publisher a default QoS event handler
+    # (it logs incompatible QoS), and the executor checks each one again
+    # whenever any message arrives. Without them the bridge uses about half
+    # the CPU; it matches each topic's QoS itself (qos.py).
+    def create_subscription(self, *args, event_callbacks=None, **kwargs):
+        if event_callbacks is None:
+            event_callbacks = SubscriptionEventCallbacks(use_default_callbacks=False)
+        return super().create_subscription(*args, event_callbacks=event_callbacks, **kwargs)
+
+    def create_publisher(self, *args, event_callbacks=None, **kwargs):
+        if event_callbacks is None:
+            event_callbacks = PublisherEventCallbacks(use_default_callbacks=False)
+        return super().create_publisher(*args, event_callbacks=event_callbacks, **kwargs)
 
     def __init__(self, watcher_proc=None):
         super().__init__('osiris_node')

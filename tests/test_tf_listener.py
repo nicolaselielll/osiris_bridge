@@ -105,10 +105,7 @@ def test_collector_moves_to_a_namespace_once_its_tf_is_published():
     tf_tree.follow_published_tf()
     assert tf_tree._tf_listener.namespace == '/robot1'
     assert [s.topic for s in node.destroyed] == ['/tf', '/tf_static']
-    tf_topics = [s.topic for s in node.subscriptions if s.topic != '/clock']
-    assert tf_topics[2:] == ['/robot1/tf', '/robot1/tf_static']
-    # The simulation's clock is subscribed once, and kept across the move.
-    assert [s.topic for s in node.subscriptions].count('/clock') == 1
+    assert [s.topic for s in node.subscriptions[2:]] == ['/robot1/tf', '/robot1/tf_static']
 
 
 def test_collector_stays_on_tf_that_is_still_published():

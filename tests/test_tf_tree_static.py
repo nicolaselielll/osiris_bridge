@@ -65,44 +65,62 @@ class SimBuffer(FakeBuffer):
         self.stamps.update({'odom': sim_now - odom_age, 'base_footprint': sim_now - footprint_age})
 
 
-def test_simulation_time_ages_count_from_the_robots_own_clock():
+def sim_collector(buffer):
+    collector = TfTreeCollector(node=None, event_callback=lambda _e: None, logger=SimpleNamespace(debug=lambda *_: None))
+    collector._tf_buffer = buffer
+    return collector
+
+
+def at(monkeypatch, wall):
+    monkeypatch.setattr('osiris_agent.tf_tree_collector.time.time', lambda: wall)
+
+
+WALL = 1_792_530_000.0
+
+
+def test_on_simulation_time_new_stamps_are_fresh(monkeypatch):
+    # Stamps count from the simulation's start, decades behind the wall clock.
+    at(monkeypatch, WALL)
     frames = tree(SimBuffer(847.0))
     assert not frames['odom']['is_stale'] and not frames['base_footprint']['is_stale']
-    assert frames['odom']['age_seconds'] == pytest.approx(0.03, abs=1e-3)
-    assert frames['base_footprint']['age_seconds'] == pytest.approx(0.0, abs=1e-3)
+    assert frames['odom']['age_seconds'] == 0.0 and frames['base_footprint']['age_seconds'] == 0.0
 
 
-def test_under_simulation_time_a_transform_that_stopped_is_still_stale():
-    frames = tree(SimBuffer(847.0, odom_age=12.0))
-    # Measured from the newest transform, base_footprint, 0.02 s behind the simulation.
-    assert frames['odom']['is_stale'] and frames['odom']['age_seconds'] == pytest.approx(11.98, abs=1e-3)
+def test_on_simulation_time_a_transform_whose_stamp_stops_changing_grows_stale(monkeypatch):
+    buffer = SimBuffer(847.0)
+    collector = sim_collector(buffer)
+    at(monkeypatch, WALL)
+    collector._build_frame_tree()
+    # Half a second later base_footprint has moved on and odom hasn't.
+    buffer.stamps['base_footprint'] += 0.5
+    at(monkeypatch, WALL + 0.5)
+    frames = collector._build_frame_tree()
+    assert frames['odom']['age_seconds'] == pytest.approx(0.5) and not frames['odom']['is_stale']
+    assert frames['base_footprint']['age_seconds'] == 0.0
+    # Two seconds on, still the same odom stamp: stale.
+    buffer.stamps['base_footprint'] += 1.5
+    at(monkeypatch, WALL + 2.0)
+    frames = collector._build_frame_tree()
+    assert frames['odom']['is_stale'] and frames['odom']['age_seconds'] == pytest.approx(2.0)
     assert not frames['base_footprint']['is_stale']
 
 
-def test_reference_time_is_the_wall_clock_unless_every_stamp_predates_2001():
-    from osiris_agent.tf_tree_collector import reference_time
-    wall = 1_792_530_000.0
-    assert reference_time([wall - 0.1, wall - 30.0], wall) == wall
-    assert reference_time([], wall) == wall
-    assert reference_time([846.9, 847.0], wall) == 847.0
-    # A robot whose own clock was never set (both near 1970) keeps comparing as before.
-    assert reference_time([12.0], 15.0) == 15.0
-
-
-def test_with_the_simulation_clock_amcls_ahead_stamp_doesnt_make_other_frames_stale():
+def test_amcls_ahead_stamp_doesnt_make_other_frames_stale(monkeypatch):
     # AMCL stamps map -> odom transform_tolerance (1 s) ahead of the simulation.
-    buffer = SimBuffer(847.0, odom_age=-1.0, footprint_age=0.02)
-    collector = TfTreeCollector(node=None, event_callback=lambda _e: None, logger=SimpleNamespace(debug=lambda *_: None))
-    collector._tf_buffer = buffer
-    collector._sim_clock = 847.0
-    frames = collector._build_frame_tree()
-    assert frames['base_footprint']['age_seconds'] == pytest.approx(0.02, abs=1e-3)
+    at(monkeypatch, WALL)
+    frames = tree(SimBuffer(847.0, odom_age=-1.0, footprint_age=0.02))
     assert not frames['base_footprint']['is_stale'] and not frames['odom']['is_stale']
 
 
-def test_reference_time_prefers_the_simulation_clock():
-    from osiris_agent.tf_tree_collector import reference_time
-    wall = 1_792_530_000.0
-    assert reference_time([846.0, 848.0], wall, sim_clock=847.0) == 847.0
-    # The wall-clock case ignores any simulation clock.
-    assert reference_time([wall - 0.1], wall, sim_clock=847.0) == wall
+def test_on_the_wall_clock_ages_still_count_from_the_stamp():
+    frames = tree(FakeBuffer(time.time(), odom_age=0.4))
+    assert frames['odom']['age_seconds'] == pytest.approx(0.4, abs=0.05)
+
+
+def test_simulation_time_means_every_stamp_predates_2001():
+    from osiris_agent.tf_tree_collector import on_sim_time
+    assert on_sim_time([846.9, 847.0], WALL)
+    assert not on_sim_time([WALL - 0.1, WALL - 30.0], WALL)
+    assert not on_sim_time([], WALL)
+    # A robot whose own clock was never set (near 1970, like the wall clock) isn't on simulation time.
+    assert not on_sim_time([12.0], 15.0)
