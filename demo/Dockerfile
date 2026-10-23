@@ -27,7 +27,7 @@ RUN mkdir -p /demo \
       /opt/ros/jazzy/share/nav2_bringup/params/nav2_params.yaml > /demo/nav2_params.yaml \
  && grep -A6 '^global_costmap:' /demo/nav2_params.yaml | grep -q 'publish_frequency: 0.2'
 
-ARG BRIDGE_VERSION=0.5.2
+ARG BRIDGE_VERSION=0.5.3
 RUN pip3 install --no-cache-dir --break-system-packages osiris-bridge==${BRIDGE_VERSION}
 
 COPY start.sh clean_bags.sh initial_pose.py patrol.py osiris_params.yaml /demo/
