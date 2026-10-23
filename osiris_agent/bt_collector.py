@@ -21,6 +21,8 @@ import zmq
 import msgpack
 import random  # for unique_id generation in requests
 
+from .bt_status import plain, resting
+
 # Default Groot2 configuration (industry standard)
 DEFAULT_SERVER_PORT = 1667  # REQ/REP for tree structure and status polling
 DEFAULT_PUBLISHER_PORT = 1668  # PUB/SUB for breakpoint notifications only
@@ -207,7 +209,7 @@ class BTCollector:
                             continue
                         # Fetch initial status snapshot + start recording transitions
                         try:
-                            self._poll_status(req_socket, suppress_event=True)
+                            self._poll_status(req_socket, seed=True)
                             self._start_recording(req_socket)
                         except Exception:
                             pass
@@ -219,11 +221,12 @@ class BTCollector:
                     # Poll transitions (exact 1:1 match with terminal output)
                     self._poll_transitions(req_socket)
                     
-                    # Periodic status snapshot for tree-change detection only (no emit)
+                    # Periodic status snapshot: tree-change detection, and the
+                    # statuses themselves only when transitions can't be recorded
                     now = time.time()
                     if now - self._last_snapshot_poll >= SNAPSHOT_POLL_INTERVAL:
                         self._last_snapshot_poll = now
-                        self._poll_status(req_socket, suppress_event=True)
+                        self._poll_status(req_socket)
                     
                     # Blackboard
                     if self._subtree_names:
@@ -288,8 +291,12 @@ class BTCollector:
         finally:
             req_socket.close()
 
-    def _poll_status(self, socket: zmq.Socket, suppress_event: bool = False):
-        """Poll for status update via REQ/REP."""
+    def _poll_status(self, socket: zmq.Socket, seed: bool = False):
+        """Poll for status update via REQ/REP. The snapshot seeds each node's
+        status once; after that the recorded transitions keep them, and a
+        snapshot taken between two transition polls would put a node's next
+        status ahead of the transition that gets it there. Only without
+        recording do snapshots report the changes."""
         # Send STATUS request: protocol=2, type='S'
         protocol = 2
         req_type = ord('S')  # 'S' = STATUS request
@@ -302,13 +309,16 @@ class BTCollector:
         parts = socket.recv_multipart()
         if parts and len(parts) >= 2:
             resp_tree_id = self._extract_tree_id_from_header(parts[0])
+            replaced = False
             if resp_tree_id and (not self._current_tree or self._current_tree.tree_id != resp_tree_id):
                 self._log_warn(
                     f"Tree changed behind endpoint: {self._current_tree.tree_id if self._current_tree else None} -> {resp_tree_id}. Refreshing FULLTREE..."
                 )
-                if self._request_tree_structure(socket):
-                    self._emit_current_tree_event()
-            self._handle_status_message(parts, resp_tree_id, suppress_event=suppress_event)
+                replaced = self._request_tree_structure(socket)
+            if seed or replaced or not self._recording:
+                self._handle_status_message(parts, resp_tree_id, suppress_event=seed or replaced)
+            if replaced:
+                self._emit_current_tree_event()
 
     def _extract_tree_id_from_header(self, hdr: bytes) -> Optional[str]:
         """
@@ -330,24 +340,27 @@ class BTCollector:
             "nodes": [],
         })
 
-    def _emit_current_tree_event(self):
-        if not self._current_tree:
-            return
-        nodes_with_status = []
-        for nd in getattr(self._current_tree, "nodes_list", []):
-            uid = nd.get("uid")
-            nd_copy = dict(nd)
-            nd_copy["status"] = self._last_statuses.get(uid, NodeStatus.IDLE.name)
-            nodes_with_status.append(nd_copy)
-        event = {
+    def tree_event(self) -> Optional[Dict[str, Any]]:
+        """The tree with each node's current status, or None before one is known."""
+        tree = self._current_tree
+        if not tree:
+            return None
+        statuses = dict(self._last_statuses)
+        return {
             "type": "bt_tree",
             "timestamp": time.time(),
-            "tree_id": self._current_tree.tree_id,
-            "tree": self._current_tree.structure,
-            "nodes": nodes_with_status,
+            "tree_id": tree.tree_id,
+            "tree": tree.structure,
+            "nodes": [{**nd, "status": statuses.get(nd.get("uid"), NodeStatus.IDLE.name)}
+                      for nd in getattr(tree, "nodes_list", [])],
             "blackboard": self._blackboard,
         }
-        self._log_debug(f"Sending tree event ({len(nodes_with_status)} nodes, {len(self._blackboard)} bb entries)")
+
+    def _emit_current_tree_event(self):
+        event = self.tree_event()
+        if not event:
+            return
+        self._log_debug(f"Sending tree event ({len(event['nodes'])} nodes, {len(self._blackboard)} bb entries)")
         self._event_callback(event)
 
     def _request_tree_structure(self, socket: zmq.Socket) -> bool:
@@ -467,24 +480,32 @@ class BTCollector:
         return nodes_list
     
     def _build_tree_structure(self, elem) -> dict:
-        """Recursively build hierarchical tree structure from XML."""
-        # Find the BehaviorTree element
-        behavior_tree = elem.find('.//BehaviorTree')
-        if behavior_tree is None:
+        """Recursively build hierarchical tree structure from XML. Groot2 sends
+        each subtree as a BehaviorTree of its own, the main tree first; each
+        goes under the SubTree node with the same _fullpath."""
+        behavior_trees = list(elem.iter('BehaviorTree'))
+        if not behavior_trees or not len(behavior_trees[0]):
             return {}
-        
-        # Build from the first child of BehaviorTree (the root node)
-        children = list(behavior_tree)
-        if not children:
-            return {}
-        
-        return self._element_to_tree_node(children[0])
-    
-    def _element_to_tree_node(self, elem) -> dict:
+        by_path = {bt.attrib.get('_fullpath', ''): bt for bt in behavior_trees[1:]}
+        structure = self._element_to_tree_node(list(behavior_trees[0])[0], by_path)
+        structure['tree_name'] = behavior_trees[0].attrib.get('ID', '')
+        return structure
+
+    @staticmethod
+    def _node_name(elem) -> str:
+        if 'name' in elem.attrib:
+            return elem.attrib['name']
+        # Groot2 names a subtree's instance only by its path ("Outer/InspectLeft",
+        # or "Inspect::9" when the tree file gave it no name).
+        if elem.tag == 'SubTree' and elem.attrib.get('_fullpath'):
+            return elem.attrib['_fullpath'].rsplit('/', 1)[-1].split('::', 1)[0]
+        return elem.attrib.get('ID', elem.tag)
+
+    def _element_to_tree_node(self, elem, by_path=None, depth=0) -> dict:
         """Convert an XML element to a tree node dict with children."""
         node = {
             'tag': elem.tag,
-            'name': elem.attrib.get('name', elem.attrib.get('ID', elem.tag)),
+            'name': self._node_name(elem),
             'attributes': dict(elem.attrib),
         }
         
@@ -497,10 +518,12 @@ class BTCollector:
                 pass
         
         # Recursively add children
-        children = []
-        for child in elem:
-            children.append(self._element_to_tree_node(child))
-        
+        children = [self._element_to_tree_node(child, by_path, depth + 1) for child in elem]
+        if elem.tag == 'SubTree' and not children and by_path and depth < 64:
+            subtree = by_path.get(elem.attrib.get('_fullpath', ''))
+            if subtree is not None and len(subtree):
+                children = [self._element_to_tree_node(list(subtree)[0], by_path, depth + 1)]
+
         if children:
             node['children'] = children
         
@@ -513,7 +536,7 @@ class BTCollector:
         if uid_str:
             try:
                 uid = int(uid_str)
-                name = elem.attrib.get('name', elem.attrib.get('ID', elem.tag))
+                name = self._node_name(elem)
                 tag = elem.tag
                 
                 node = BTNode(uid=uid, name=name, tag=tag)
@@ -574,13 +597,10 @@ class BTCollector:
                     
                     self._log_debug(f"  Node {uid} ({node_name}): -> {status_str}")
                     
-                    changes.append({
-                        'uid': uid,
-                        'name': node_name,
-                        'tag': node_tag,
-                        'previous_status': previous_status,
-                        'status': status_str
-                    })
+                    change = {'uid': uid, 'name': node_name, 'tag': node_tag, 'status': plain(status_str)}
+                    if previous_status:
+                        change['previous_status'] = plain(previous_status)
+                    changes.append(change)
             
             if changes and not suppress_event:
                 event = {
@@ -727,13 +747,11 @@ class BTCollector:
                 
                 # Decode status: values >= 10 mean "IDLE (was X)"
                 if raw_status >= 10:
-                    prev_val = raw_status - 10
+                    previous_status = NodeStatus.to_string(raw_status - 10)
                     new_status = "IDLE"
                 else:
-                    prev_val = None  # derived from _last_statuses below
+                    previous_status = plain(self._last_statuses.get(uid, NodeStatus.IDLE.name))
                     new_status = NodeStatus.to_string(raw_status)
-                
-                previous_status = self._last_statuses.get(uid) if prev_val is None else NodeStatus.to_string(prev_val)
                 
                 # Get node info
                 node_name = ""
@@ -743,7 +761,7 @@ class BTCollector:
                     node_name = node.name
                     node_tag = node.tag
                 
-                self._last_statuses[uid] = new_status
+                self._last_statuses[uid] = resting(previous_status) if new_status == "IDLE" else new_status
                 changes.append({
                     'uid': uid,
                     'name': node_name,
