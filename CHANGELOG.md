@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- **The B Tree pane follows Nav2's behavior tree change by change.** The bridge sent each node's last status per log message, so most changes never reached the pane: a check that passed and reset within one tick, or a goal's first tick. It also matched the log to the tree by node name, and Nav2's own tree has two nodes named ComputePathToPose, two named FollowPath and three named Sequence, so their statuses showed on the wrong rows. The bridge now sends every change, in the log's order, at most ten times a second, on the node the log names: by its uid on Jazzy and newer, and on Humble, whose log has no uids, on the same-named node whose status and running parent fit the change.
+- **navigate_through_poses shows its own tree.** The bridge read only navigate_to_pose's tree. It now reads both navigators' trees and shows the tree of the one running. A tree file named in bt_navigator's parameters is read again once those parameters arrive, instead of keeping Nav2's default tree.
+- When a Nav2 goal ends, its tree is shown at rest: every node idle, keeping how it last ended, and the root with the goal's result. Nav2 halts the tree when a goal ends but logs the goal's last tick only when the navigator's next goal starts, so the pane showed nodes running until then.
+- **A BT.CPP tree shows its subtrees.** Groot2 sends each subtree separately, and the bridge showed only the main tree, with each subtree instance as a single node named after the subtree's ID. A subtree's nodes now sit under its SubTree node, which keeps its own name.
+- A BT.CPP transition's previous status now comes from the transitions alone. The status snapshot the bridge takes twice a second to notice a replaced tree could get ahead of the transitions, and a change then went out as, for example, SUCCESS to SUCCESS, which the pane dropped.
+- A page that opens, or a bridge that reconnects, gets each node's current status instead of the statuses from when the tree was first sent.
+
 ## 0.5.2 (2026-10-22)
 
 ### Fixes

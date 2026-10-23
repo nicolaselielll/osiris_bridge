@@ -182,14 +182,7 @@ class GraphMonitorMixin:
             # Nav2 BT edge-case: the followed behavior tree log just appeared
             if t == self._nav2_bt_log_topic and self._nav2_bt_monitor_initialized:
                 if self.count_publishers(t) > 0:
-                    self._nav2_bt_publisher_active = True
-                    if self._load_and_parse_bt_xml():
-                        self._on_bt_event({
-                            'type': 'bt_tree', 'timestamp': time.time(),
-                            'tree_id': self._nav2_bt_tree_id,
-                            'tree': self._nav2_bt_tree_structure,
-                            'nodes': [{**nd, 'status': 'IDLE'} for nd in self._nav2_bt_nodes_list],
-                        })
+                    self._on_nav2_bt_publisher()
 
         for t in self._active_topics - current_topics:
             self._topic_relations.pop(t, None)
@@ -258,23 +251,10 @@ class GraphMonitorMixin:
             bt_pubs = bt_rel.get('publishers', set()) & current_nodes
             if self._nav2_bt_publisher_active and not bt_pubs:
                 self._on_nav2_bt_gone()
-            elif self._nav2_bt_publisher_active and bt_pubs and self._nav2_bt_tree_id is None:
-                if self._load_and_parse_bt_xml():
-                    self._on_bt_event({
-                        'type': 'bt_tree', 'timestamp': time.time(),
-                        'tree_id': self._nav2_bt_tree_id,
-                        'tree': self._nav2_bt_tree_structure,
-                        'nodes': [{**nd, 'status': 'IDLE'} for nd in self._nav2_bt_nodes_list],
-                    })
+            elif self._nav2_bt_publisher_active and bt_pubs and self._nav2_bt_active is None:
+                self._on_nav2_bt_publisher()
             elif not self._nav2_bt_publisher_active and bt_pubs:
-                self._nav2_bt_publisher_active = True
-                if self._load_and_parse_bt_xml():
-                    self._on_bt_event({
-                        'type': 'bt_tree', 'timestamp': time.time(),
-                        'tree_id': self._nav2_bt_tree_id,
-                        'tree': self._nav2_bt_tree_structure,
-                        'nodes': [{**nd, 'status': 'IDLE'} for nd in self._nav2_bt_nodes_list],
-                    })
+                self._on_nav2_bt_publisher()
 
         # ── 10. Flush graph snapshots if anything changed ─────────────────────
         self._flush_graph_snapshots()
@@ -382,14 +362,7 @@ class GraphMonitorMixin:
                 if topic == self._nav2_bt_log_topic and self._nav2_bt_monitor_initialized:
                     old_pubs = old['publishers']
                     if publishers and not old_pubs:
-                        self._nav2_bt_publisher_active = True
-                        if self._load_and_parse_bt_xml():
-                            self._on_bt_event({
-                                'type': 'bt_tree', 'timestamp': time.time(),
-                                'tree_id': self._nav2_bt_tree_id,
-                                'tree': self._nav2_bt_tree_structure,
-                                'nodes': [{**nd, 'status': 'IDLE'} for nd in self._nav2_bt_nodes_list],
-                            })
+                        self._on_nav2_bt_publisher()
                     elif old_pubs and not publishers:
                         self._on_nav2_bt_gone()
 
