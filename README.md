@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/pypi/l/osiris-bridge.svg)
 ![CI](https://github.com/nicolaselielll/osiris_bridge/actions/workflows/ci.yml/badge.svg)
 
-The Osiris bridge connects a ROS 2 robot to [Osiris](https://osirislabs.io), where you watch it live, record bags, look back through its history and ask an AI what it is doing.
+The Osiris bridge connects a ROS 2 robot to [Osiris](https://app.osirislabs.io), where you watch it live, record bags, look back through its history and ask an AI what it is doing.
 
 It runs on the robot as one ROS 2 node, `osiris_node`. It connects out to the Osiris gateway over a WebSocket, sends up what the robot reports, and takes requests back down: subscribe to a topic, record a bag, drive or spin. The connection is outbound only, so nothing has to be opened, forwarded or exposed on the robot's network.
 
